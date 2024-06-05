@@ -346,6 +346,21 @@ impl Image {
         Ok(Self(Arc::new(LazyHash::new(Repr { kind, alt }))))
     }
 
+    #[comemo::memoize]
+    #[typst_macros::time(name = "load ttf image")]
+    pub fn new_ttf_image(
+        data: Bytes,
+        format: raster::TtfRasterImageFormat,
+        dimensions: (u16, u16),
+    ) -> StrResult<Image> {
+        Ok(Self(Arc::new(LazyHash::new(Repr {
+            kind: ImageKind::Raster(RasterImage::new_ttf_image(
+                data, format, dimensions,
+            )?),
+            alt: None,
+        }))))
+    }
+
     /// Create a possibly font-dependant image from a buffer and a format.
     #[comemo::memoize]
     #[typst_macros::time(name = "load image")]

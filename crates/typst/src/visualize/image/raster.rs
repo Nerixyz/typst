@@ -45,6 +45,7 @@ impl RasterImage {
             RasterFormat::Jpg => decode_with(JpegDecoder::new(cursor)),
             RasterFormat::Png => decode_with(PngDecoder::new(cursor)),
             RasterFormat::Gif => decode_with(GifDecoder::new(cursor)),
+            RasterFormat::Other => bail!("Invalid format"),
         }
         .map_err(format_image_error)?;
 
@@ -61,6 +62,38 @@ impl RasterImage {
         let dpi = determine_dpi(&data, exif.as_ref());
 
         Ok(Self(Arc::new(Repr { data, format, dynamic, icc, dpi })))
+    }
+
+    #[comemo::memoize]
+    pub fn new_ttf_image(
+        data: Bytes,
+        format: TtfRasterImageFormat,
+        dimensions: (u16, u16),
+    ) -> StrResult<RasterImage> {
+        if format == TtfRasterImageFormat::Png {
+            return Self::new(data, RasterFormat::Png);
+        }
+        assert_eq!(format, TtfRasterImageFormat::BitmapMonoPacked); // TODO
+        let (width, height) = dimensions;
+        let mut buf =
+            Vec::with_capacity((width as usize * height as usize).next_multiple_of(8));
+        for &v in data.iter() {
+            for i in (0usize..8).rev() {
+                buf.push(if v & (1 << i) == 0 { u8::MAX } else { 0 });
+            }
+        }
+        let dynamic = DynamicImage::ImageLuma8(
+            image::GrayImage::from_raw(width as u32, height as u32, buf)
+                .ok_or_else(|| EcoString::from("bad dimensions"))?,
+        );
+
+        Ok(Self(Arc::new(Repr {
+            data,
+            format: RasterFormat::Other,
+            dynamic,
+            icc: None,
+            dpi: None,
+        })))
     }
 
     /// The raw image data.
@@ -116,6 +149,7 @@ pub enum RasterFormat {
     Jpg,
     /// Raster format that is typically used for short animated clips.
     Gif,
+    Other,
 }
 
 impl RasterFormat {
@@ -125,13 +159,16 @@ impl RasterFormat {
     }
 }
 
-impl From<RasterFormat> for image::ImageFormat {
-    fn from(format: RasterFormat) -> Self {
-        match format {
+impl TryFrom<RasterFormat> for image::ImageFormat {
+    type Error = EcoString;
+
+    fn try_from(format: RasterFormat) -> StrResult<Self> {
+        Ok(match format {
             RasterFormat::Png => image::ImageFormat::Png,
             RasterFormat::Jpg => image::ImageFormat::Jpeg,
             RasterFormat::Gif => image::ImageFormat::Gif,
-        }
+            RasterFormat::Other => bail!("Not yet supported"),
+        })
     }
 }
 
@@ -262,6 +299,35 @@ fn format_image_error(error: image::ImageError) -> EcoString {
     match error {
         image::ImageError::Limits(_) => "file is too large".into(),
         err => eco_format!("failed to decode image ({err})"),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum TtfRasterImageFormat {
+    Png,
+    BitmapMono,
+    BitmapMonoPacked,
+    BitmapGray2,
+    BitmapGray2Packed,
+    BitmapGray4,
+    BitmapGray4Packed,
+    BitmapGray8,
+    BitmapPremulBgra32,
+}
+
+impl From<ttf_parser::RasterImageFormat> for TtfRasterImageFormat {
+    fn from(value: ttf_parser::RasterImageFormat) -> Self {
+        match value {
+            ttf_parser::RasterImageFormat::PNG => Self::Png,
+            ttf_parser::RasterImageFormat::BitmapMono => Self::BitmapMono,
+            ttf_parser::RasterImageFormat::BitmapMonoPacked => Self::BitmapMonoPacked,
+            ttf_parser::RasterImageFormat::BitmapGray2 => Self::BitmapGray2,
+            ttf_parser::RasterImageFormat::BitmapGray2Packed => Self::BitmapGray2Packed,
+            ttf_parser::RasterImageFormat::BitmapGray4 => Self::BitmapGray4,
+            ttf_parser::RasterImageFormat::BitmapGray4Packed => Self::BitmapGray4Packed,
+            ttf_parser::RasterImageFormat::BitmapGray8 => Self::BitmapGray8,
+            ttf_parser::RasterImageFormat::BitmapPremulBgra32 => Self::BitmapPremulBgra32,
+        }
     }
 }
 

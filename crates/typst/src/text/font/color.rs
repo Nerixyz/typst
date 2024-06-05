@@ -50,10 +50,10 @@ fn draw_raster_glyph(
     upem: Abs,
     raster_image: ttf_parser::RasterGlyphImage,
 ) {
-    let image = Image::new(
+    let image = Image::new_ttf_image(
         raster_image.data.into(),
-        typst::visualize::ImageFormat::Raster(typst::visualize::RasterFormat::Png),
-        None,
+        raster_image.format.into(),
+        (raster_image.width, raster_image.height),
     )
     .unwrap();
 
